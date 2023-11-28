@@ -54,102 +54,93 @@
 #include <sys/alt_errno.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <unistd.h>
 
-// us timeout for TSE IP reset polling
 #define TSE_RESET_TIMEOUT 10
 
-// Deferred ISR task parameters
-#define RX_DEFERRED_ISR_STACKSIZE  ( configMINIMAL_STACK_SIZE )
+#define RX_DEFERRED_ISR_STACKSIZE  ( 8 * configMINIMAL_STACK_SIZE )
 #define RX_DEFERRED_ISR_PRIORITY  configMAX_PRIORITIES - 1
+#define RX_LINKED_RX_MESSAGES_NUM 1
 
-// MSGDMA Prefetcher descriptor oc memory parameters
 #define MSGDMA_PREFETCHER_STANDARD_DESCRIPTOR_SIZE 0x20 // 256 bit = 32 bytes
 #define MSGDMA_DESCRIPTOR_SIZE MSGDMA_PREFETCHER_STANDARD_DESCRIPTOR_SIZE // using standard descriptors
 
 //#define RX_DESCRIPTOR_LIST_SIZE (DMA_DESC_RAM_SIZE_VALUE / MSGDMA_DESCRIPTOR_SIZE / 2)
-#define RX_DESCRIPTOR_LIST_SIZE 6
+#define RX_DESCRIPTOR_LIST_SIZE 5
 #define TX_DESCRIPTOR_LIST_SIZE RX_DESCRIPTOR_LIST_SIZE
-#define RX_DESCRIPTOR_LIST_START TSE_DMA_DESC_RAM_BASE //from system.h
+#define RX_DESCRIPTOR_LIST_START CPU_SUBSYSTEM_TSE_DMA_DESC_RAM_BASE
 #define TX_DESCRIPTOR_LIST_START (RX_DESCRIPTOR_LIST_START + RX_DESCRIPTOR_LIST_SIZE * MSGDMA_DESCRIPTOR_SIZE)
-// using altera msgdma standard descriptors
+
 typedef  alt_msgdma_prefetcher_standard_descriptor t_descr;
 
-// static buffer allocation properties
-#define BUFFER_SIZE ( ipTOTAL_ETHERNET_FRAME_SIZE + ipBUFFER_PADDING )
-#define BUFFER_SIZE_ROUNDED_UP ( ( BUFFER_SIZE + 7 ) & ~0x07UL )
-
-// filling altera tse system structure, names taken from system.h
 alt_tse_system_info tse_mac_device[MAXNETS] = {
-  TSE_SYSTEM_EXT_MEM_NO_SHARED_FIFO(TSE,              // tse_name
+  TSE_SYSTEM_EXT_MEM_NO_SHARED_FIFO(
+                                    CPU_SUBSYSTEM_TSE,              // tse_name
                                     0,                    // offset
-                                    TSE_TX_MSGDMA,    // msgdma_tx_name
-                                    TSE_RX_MSGDMA,    // msgdma_rx_name
+                                    CPU_SUBSYSTEM_TSE_TX_MSGDMA,    // msgdma_tx_name
+                                    CPU_SUBSYSTEM_TSE_RX_MSGDMA,    // msgdma_rx_name
                                     TSE_PHY_AUTO_ADDRESS, // phy_addr
                                     NULL,                 // phy_cfg_fp
-                                    TSE_DMA_DESC_RAM          // desc_mem_name
+                                    CPU_SUBSYSTEM_TSE_DMA_DESC_RAM          // desc_mem_name
                                     )
 };
 
 // additional configuration function for GPY115 
-alt_32 GPY115_config(np_tse_mac *pmac)
-{
-  alt_u16 dat;
+alt_32 GPY115_config(np_tse_mac *pmac) {
+    alt_u16 dat;
 
-  dat = IORD(&pmac->mdio1.ADV, 0);
-  dat &= 0xFFFF;
-  dat &= ~(0x0380);
-  IOWR(&pmac->mdio1.ADV, 0, dat);
+    dat = IORD(&pmac->mdio1.ADV, 0);
+    dat &= 0xFFFF;
+    dat &= ~(0x0380);
+    IOWR(&pmac->mdio1.ADV, 0, dat);
 
-  dat = IORD(&pmac->mdio1.reg9, 0);
-  dat &= 0xFFFF;
-  dat &= ~(0x0200);
-  IOWR(&pmac->mdio1.reg9, 0, dat);
+    dat = IORD(&pmac->mdio1.reg9, 0);
+    dat &= 0xFFFF;
+    dat &= ~(0x0200);
+    IOWR(&pmac->mdio1.reg9, 0, dat);
 
-  dat = IORD(&pmac->mdio1.reg14, 0);
-  dat |= 0x100;
-  dat &= ~(0x6);
-  IOWR(&pmac->mdio1.reg14, 0, dat);
+    dat = IORD(&pmac->mdio1.reg14, 0);
+    dat |= 0x100;
+    dat &= ~(0x6);
+    IOWR(&pmac->mdio1.reg14, 0, dat);
 
-  return 0;
-
+    return 0;
 }
 
-// function to read out negotiated speed and mode
 alt_u32 GPY115_link_status_read(np_tse_mac *pmac) {
-  alt_u32 link_status = 0;
-  usleep(1000000);
-  alt_u32 reg = IORD(&pmac->mdio1.reg18, 0);
-  alt_u32 speed = reg & 0x7;
-  if(speed > 3)
-    return (0x1 << 16);
-  else if(speed == 3)
-    return (0x1 << 19);
-  else if(speed == 2)
-    link_status = (0x1 << 1);
-  else if(speed == 1)
-    link_status = (0x1 << 2);
-  else if(speed == 0)
-    link_status = (0x1 << 3);
+    alt_u32 link_status = 0;
+    vTaskDelay(1000);
+    alt_u32 reg = IORD(&pmac->mdio1.reg18, 0);
+    alt_u32 speed = reg & 0x7;
+    if(speed > 3)
+    	return (0x1 << 16);
+    else if(speed == 3)
+    	return (0x1 << 19);
+    else if(speed == 2)
+    	link_status = (0x1 << 1);
+    else if(speed == 1)
+		link_status = (0x1 << 2);
+    else if(speed == 0)
+		link_status = (0x1 << 3);
 
-  link_status |= ((reg & 0x8) >> 3);
-  return link_status;
+    link_status |= ((reg & 0x8) >> 3);
+    return link_status;
 }
 
 // GPY115 init struct
 alt_tse_phy_profile GPY115C0VI = {"MaxLinear GPY115C0VI",
-                                  0x19f277,                   /* OUI                                                        */
-                                  0x31,                 /* Vender Model Number                                        */
-                                  0x0,                   /* Model Revision Number                                      */
-                                  0,                              /* Location of Status Register (ignored)                      */
-                                  0,                              /* Location of Speed Status    (ignored)                      */
-                                  0,                              /* Location of Duplex Status   (ignored)                      */
-                                  0,                              /* Location of Link Status     (ignored)                      */
-                                  0,//&GPY115_config,                              /* No function pointer configure              */
-                                  &GPY115_link_status_read      /* Function pointer to read from PHY specific status register */           
+    0x19f277,                   /* OUI                                                        */
+    0x31,                 /* Vender Model Number                                        */
+    0x0,                   /* Model Revision Number                                      */
+    0,                              /* Location of Status Register (ignored)                      */
+    0,                              /* Location of Speed Status    (ignored)                      */
+    0,                              /* Location of Duplex Status   (ignored)                      */
+    0,                              /* Location of Link Status     (ignored)                      */
+    &GPY115_config,                              /* No function pointer configure              */
+    &GPY115_link_status_read      /* Function pointer to read from PHY specific status register */
 };
 
-// shared struct to exchange DMA descriptor information between tasks
+//extern alt_tse_phy_profile *pphy_profiles[TSE_MAX_PHY_PROFILE];
+
 typedef struct NET_IF_INFO {
   alt_tse_system_info *pTseSystemInfo;
   np_tse_mac *pTseCsr;
@@ -157,26 +148,26 @@ typedef struct NET_IF_INFO {
   alt_msgdma_dev *txMsgdma;
   t_descr *pRxDescrListStart;
   t_descr *pTxDescrListStart;
+  TaskHandle_t *pDeferredISRHandle;
   t_descr *pRxHwDescr;
   t_descr *pRxSwDescr;
   uint8_t u8bRxHwDescrNum;
   t_descr *pTxSwDescr;
-  t_descr *pTxHwDescr;
 } NET_IF_INFO;
+
 static NET_IF_INFO netIfInfo;
 
 /* The deferred interrupt handler is a standard RTOS task.  FreeRTOS's centralised
    deferred interrupt handling capabilities can also be used. */
-static TaskHandle_t pxDeferredIsrTask;
-static void prvEMACDeferredInterruptHandlerTask( void *pvParameters )
-{
+static void prvEMACDeferredInterruptHandlerTask( void *pvParameters ) {
   NetworkBufferDescriptor_t *pxDescriptor;
-  NetworkBufferDescriptor_t *pxDescriptor_new;
   NetworkBufferDescriptor_t *pxHead = NULL;
   NetworkBufferDescriptor_t *pxTail = NULL;
+  uint8_t *pucTemp;
   t_descr *descr;
-  // Used to indicate that xSendEventStructToIPTask() is being called because
-  // of an Ethernet receive event
+
+  /* Used to indicate that xSendEventStructToIPTask() is being called because
+     of an Ethernet receive event. */
   IPStackEvent_t xRxEvent;
   uint32_t ulNotifiedValue;
 
@@ -185,61 +176,109 @@ static void prvEMACDeferredInterruptHandlerTask( void *pvParameters )
 
   for( int j = 0;; ++j)
     {
-      // Wait for the Ethernet MAC interrupt to indicate that another packet
-      // has been received.  The task notification is used in a similar way to a
-      // counting semaphore to count Rx events, but is a lot more efficient than
-      // a semaphore.
+      /* Wait for the Ethernet MAC interrupt to indicate that another packet
+         has been received.  The task notification is used in a similar way to a
+         counting semaphore to count Rx events, but is a lot more efficient than
+         a semaphore. */
       ulNotifiedValue = ulTaskNotifyTake( pdFALSE, portMAX_DELAY );
 
-      // get the descriptor pointer for the filled buffer by DMA
-      pxDescriptor = *( ( NetworkBufferDescriptor_t ** )(descr->write_address - ipBUFFER_PADDING) );
-      alt_dcache_flush((void*)descr->write_address, ipTOTAL_ETHERNET_FRAME_SIZE);
-      // update bytes transferred field
-      pxDescriptor->xDataLength = descr->bytes_transfered;
+        /* Allocate a new network buffer descriptor that references an Ethernet
+           frame large enough to hold the maximum network packet size (as defined
+           in the FreeRTOSIPConfig.h header file). */
+        pxDescriptor = pxGetNetworkBufferWithDescriptor( ipTOTAL_ETHERNET_FRAME_SIZE, 0 );
+        alt_dcache_flush(pxDescriptor->pucEthernetBuffer, pxDescriptor->xDataLength);
+        alt_dcache_flush(descr->write_address, ipTOTAL_ETHERNET_FRAME_SIZE);
 
-      // Allocate a new network buffer descriptor that references an Ethernet
-      // frame large enough to hold the maximum network packet size (as defined
-      // in the FreeRTOSIPConfig.h header file). 
-      pxDescriptor_new = pxGetNetworkBufferWithDescriptor( ipTOTAL_ETHERNET_FRAME_SIZE, portMAX_DELAY );
-      alt_dcache_flush(pxDescriptor_new->pucEthernetBuffer, pxDescriptor_new->xDataLength);
-      // copy new buffer address into DMA descriptor
-      descr->write_address = ((alt_u32) pxDescriptor_new->pucEthernetBuffer);
+        /* Copy the pointer to the newly allocated Ethernet frame to a temporary
+           variable. */
+        pucTemp = pxDescriptor->pucEthernetBuffer;
 
-      taskENTER_CRITICAL();
-      // move SW DMA descripter pointer to the next one
-      pNetIfInfo->pRxSwDescr = (t_descr*)(descr->next_desc_ptr);
-      // Give DMA descriptor to HW
-      if ((t_descr*)(pNetIfInfo->pRxHwDescr) == descr) {
-        pNetIfInfo->pRxHwDescr->control           |= ALT_MSGDMA_PREFETCHER_DESCRIPTOR_CTRL_OWN_BY_HW_SET_MASK;
-      }
-      taskEXIT_CRITICAL();
-      descr = (t_descr*)(descr->next_desc_ptr);
+        /* Update the newly allocated network buffer descriptor
+           to point to the Ethernet buffer that contains the received data. */
+        pxDescriptor->pucEthernetBuffer = (uint8_t*)descr->write_address;
+        pxDescriptor->xDataLength = descr->bytes_transfered;
 
-      // See if the data contained in the received Ethernet frame needs
-      // to be processed.  NOTE! It might be possible to do this in
-      // the interrupt service routine itself, which would remove the need
-      // to unblock this task for packets that don't need processing.
-      if ( eConsiderFrameForProcessing( pxDescriptor->pucEthernetBuffer ) ) {
-        xRxEvent.eEventType = eNetworkRxEvent;
-        // pvData is used to point to the network buffer descriptor that
-        // references the received data.
-        xRxEvent.pvData = ( void * ) pxDescriptor;
-        if( xSendEventStructToIPTask( &xRxEvent, 0 ) == pdFALSE ) {
-          // The buffer could not be sent to the IP task so the buffer
-          // must be released.
-          vReleaseNetworkBufferAndDescriptor( pxDescriptor );
-          // Make a call to the standard trace macro to log the
-          // occurrence.
+        /*
+         * The network buffer descriptor now points to the Ethernet buffer that
+         * contains the received data, and the Ethernet DMA descriptor now points
+         * to a newly allocated (and empty) Ethernet buffer ready to receive more
+         * data.  No data was copied.  Only pointers to data were swapped.
+         */
+        *( ( NetworkBufferDescriptor_t ** )
+           ( pxDescriptor->pucEthernetBuffer - ipBUFFER_PADDING ) ) = pxDescriptor;
+
+        /* Update the Ethernet Rx DMA descriptor to point to the newly allocated
+           Ethernet buffer. */
+        descr->write_address = (alt_u32) pucTemp;
+
+        taskENTER_CRITICAL();
+        pNetIfInfo->pRxSwDescr = (t_descr*)(descr->next_desc_ptr);
+        // Give descriptor to HW
+        if ((t_descr*)(pNetIfInfo->pRxHwDescr->next_desc_ptr) == descr) {
+          pNetIfInfo->pRxHwDescr->control           |= ALT_MSGDMA_PREFETCHER_DESCRIPTOR_CTRL_OWN_BY_HW_SET_MASK;
+        }
+        descr = (t_descr*)(descr->next_desc_ptr);
+        taskEXIT_CRITICAL();
+
+        if( pxHead == NULL )
+          {
+            /* Remember the first packet. */
+            pxHead = pxDescriptor;
+          }
+        if( pxTail != NULL )
+          {
+            /* Make the link */
+            pxTail->pxNextBuffer = pxDescriptor;
+          }
+        /* Remember the last packet. */
+        pxTail = pxDescriptor;
+
+  	  if ((j == RX_LINKED_RX_MESSAGES_NUM) || (pNetIfInfo->pRxHwDescr == pNetIfInfo->pRxSwDescr)) {
+  		  j = 0;
+      pxTail->pxNextBuffer = NULL;
+
+      /* See if the data contained in the received Ethernet frame needs
+         to be processed.  NOTE! It might be possible to do this in
+         the interrupt service routine itself, which would remove the need
+         to unblock this task for packets that don't need processing. */
+      //if( eConsiderFrameForProcessing( pxDescriptor->pucEthernetBuffer ) == eProcessBuffer ) {
+      /* The event about to be sent to the TCP/IP is an Rx event. */
+      xRxEvent.eEventType = eNetworkRxEvent;
+
+      /* pvData is used to point to the network buffer descriptor that
+         references the received data. */
+      xRxEvent.pvData = ( void * ) pxHead;
+
+      /* Send the data to the TCP/IP stack. */
+      if( xSendEventStructToIPTask( &xRxEvent, 0 ) == pdFALSE )
+        {
+          /* The buffer could not be sent to the IP task so the buffer
+             must be released. */
+          //vReleaseNetworkBufferAndDescriptor( pxDescriptor );
+          for(;pxHead != NULL;) {
+            pxTail = pxHead;
+            pxHead = pxHead->pxNextBuffer;
+            vReleaseNetworkBufferAndDescriptor( pxTail );
+          }
+          /* Make a call to the standard trace macro to log the
+             occurrence. */
           iptraceETHERNET_RX_EVENT_LOST();
         }
-        else {
-          // The message was successfully sent to the TCP/IP stack.
-          // Call the standard trace macro to log the occurrence. */
+      else
+        {
+          /* The message was successfully sent to the TCP/IP stack.
+             Call the standard trace macro to log the occurrence. */
           iptraceNETWORK_INTERFACE_RECEIVE();
         }
-      } else {
-        vReleaseNetworkBufferAndDescriptor( pxDescriptor );
-      }
+      //} else {
+      /* The Ethernet frame can be dropped, but the Ethernet buffer
+         must be released. */
+      //vReleaseNetworkBufferAndDescriptor( pxDescriptor );
+      //}
+
+      pxHead = NULL;
+      pxTail = NULL;
+  	  }
     }
 }
 
@@ -249,16 +288,18 @@ static void inline rx_msgdma_isr(NET_IF_INFO *pNetIfInfo) {
   // processing of this ISR.
   alt_msgdma_dev *rx_msgdma = pNetIfInfo->rxMsgdma;
   alt_u32        reg_data_32;
+  //reg_data_32  = IORD_ALT_MSGDMA_PREFETCHER_CONTROL(rx_msgdma->csr_base);
   reg_data_32  = IORD_ALT_MSGDMA_PREFETCHER_CONTROL(rx_msgdma->prefetcher_base);
   reg_data_32 |= ALT_MSGDMA_PREFETCHER_CTRL_GLOBAL_INTR_EN_SET_MASK;
+  //IOWR_ALT_MSGDMA_PREFETCHER_CONTROL(rx_msgdma->csr_base, reg_data_32);
   IOWR_ALT_MSGDMA_PREFETCHER_CONTROL(rx_msgdma->prefetcher_base, reg_data_32);
   IOWR_ALT_MSGDMA_PREFETCHER_STATUS(rx_msgdma->prefetcher_base, ALT_MSGDMA_PREFETCHER_STATUS_IRQ_CLR_MASK);
 
   // move HW descriptor pointer to the next descriptor
   pNetIfInfo->pRxHwDescr = (t_descr*)(pNetIfInfo->pRxHwDescr->next_desc_ptr);
 
-  // check that all previous DMA descriptors have been procesed by the SW
-  if ((t_descr*)(pNetIfInfo->pRxHwDescr) != pNetIfInfo->pRxSwDescr) {
+  // check if HW have already gone through all the descriptors in the list
+  if ((t_descr*)(pNetIfInfo->pRxHwDescr->next_desc_ptr) != pNetIfInfo->pRxSwDescr) {
     // give next descriptor to HW
     pNetIfInfo->pRxHwDescr->control           |= ALT_MSGDMA_PREFETCHER_DESCRIPTOR_CTRL_OWN_BY_HW_SET_MASK;
   }
@@ -273,11 +314,12 @@ static void inline rx_msgdma_isr(NET_IF_INFO *pNetIfInfo) {
      is the task's handle, which was obtained when the task was
      created.  vTaskNotifyGiveFromISR() also increments
      the receiving task's notification value. */
-  vTaskNotifyGiveFromISR( pxDeferredIsrTask, &xHigherPriorityTaskWoken );
+  vTaskNotifyGiveFromISR( *(pNetIfInfo->pDeferredISRHandle), &xHigherPriorityTaskWoken );
   /* Force a context switch if xHigherPriorityTaskWoken is now
      set to pdTRUE. The macro used to do this is dependent on
      the port and may be called portEND_SWITCHING_ISR. */
   portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
+  //portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
 }
 
 static void inline tx_msgdma_isr(NET_IF_INFO *pNetIfInfo) {
@@ -285,12 +327,9 @@ static void inline tx_msgdma_isr(NET_IF_INFO *pNetIfInfo) {
   reg_data = IORD_ALTERA_MSGDMA_CSR_STATUS(pNetIfInfo->txMsgdma->csr_base);
   if ((reg_data & ALTERA_MSGDMA_CSR_STOPPED_ON_ERROR_MASK) ||
       (reg_data & ALTERA_MSGDMA_CSR_STOPPED_ON_EARLY_TERMINATION_MASK)) {
-    FreeRTOS_printf( ("Tx mSGDMA descriptor is in error.\n") );
+    printf("Tx mSGDMA descriptor is in error.\n");
     return;
   }
-  // release network buffer after it has been sent
-  vNetworkBufferReleaseFromISR( *( (NetworkBufferDescriptor_t**)(netIfInfo.pTxHwDescr->read_address - ipconfigBUFFER_PADDING) ) );
-  netIfInfo.pTxHwDescr = (t_descr*)netIfInfo.pTxHwDescr->next_desc_ptr;
 }
 
 extern int alt_msgdma_start_prefetcher_with_list_addr (
@@ -299,8 +338,7 @@ extern int alt_msgdma_start_prefetcher_with_list_addr (
                                                        alt_u8 park_mode_en,
                                                        alt_u8 poll_en);
 
-BaseType_t xNetworkInterfaceInitialise( void )
-{
+BaseType_t xNetworkInterfaceInitialise( void ) {
   // speed and duplex returned by getPHYSpeed
   uint32_t duplex;
   uint32_t speed;
@@ -320,39 +358,39 @@ BaseType_t xNetworkInterfaceInitialise( void )
   // Initialize PHY and PCS by calling getPHYSpeed()
   // uC-TCP-IP does that
   {
-    FreeRTOS_printf( ("PHY and PCS Initialization: Starting.\n") );
+    printf("PHY and PCS Initialization: Starting.\n");
     result = getPHYSpeed(netIfInfo.pTseCsr);
     if ((result >> 16) & 0xFF) {
       if (result & ALT_TSE_E_INVALID_SPEED)
-        FreeRTOS_printf( ("getPHYSpeed: Invalid speed read from PHY.\n") );
+        printf("getPHYSpeed: Invalid speed read from PHY.\n");
       if (result & ALT_TSE_E_PROFILE_INCORRECT_DEFINED)
-        FreeRTOS_printf( ("getPHYSpeed: PHY Profile is not defined correctly.\n") );
+        printf("getPHYSpeed: PHY Profile is not defined correctly.\n");
       if (result & ALT_TSE_E_NO_PHY_PROFILE)
-        FreeRTOS_printf( ("getPHYSpeed: No PHY profile matched the detected PHY.\n") );
+        printf("getPHYSpeed: No PHY profile matched the detected PHY.\n");
       if (result & ALT_TSE_E_AN_NOT_COMPLETE)
-        FreeRTOS_printf( ("getPHYSpeed: Auto-negotiation not completed.\n") );
+        printf("getPHYSpeed: Auto-negotiation not completed.\n");
       if (result & ALT_TSE_E_NO_COMMON_SPEED)
-        FreeRTOS_printf( ("getPHYSpeed: No common speed found for multi-port MAC.\n") );
+        printf("getPHYSpeed: No common speed found for multi-port MAC.\n");
       if (result & ALT_TSE_E_NO_PHY)
-        FreeRTOS_printf( ("getPHYSpeed: No PHY detected.\n") );
+        printf("getPHYSpeed: No PHY detected.\n");
       if (result & ALT_TSE_E_NO_MDIO)
-        FreeRTOS_printf( ("getPHYSpeed: No MDIO used by the MAC.\n") );
+        printf("getPHYSpeed: No MDIO used by the MAC.\n");
       if (result & ALT_TSE_E_NO_PMAC_FOUND)
-        FreeRTOS_printf( ("getPHYSpeed: Argument *pmac not found from the list of MAC detected during init.\n") );
+        printf("getPHYSpeed: Argument *pmac not found from the list of MAC detected during init.\n");
       return pdFALSE;
     }
     speed  = (result >> 1) & 0x07;
     duplex = result & 0x01;
-    FreeRTOS_printf( ("getPHYSpeed: speed = %d ; duplex = %d\n", (int)speed, (int)duplex) );
-    FreeRTOS_printf( ("PHY and PCS Initialization: Success.\n") );
+    printf("getPHYSpeed: speed = %d ; duplex = %d\n", (int)speed, (int)duplex);
+    printf("PHY and PCS Initialization: Success.\n");
   }
 
   // TSE configuration
   alt_u32 *tse_base = (alt_u32*)netIfInfo.pTseCsr;
   alt_tse_system_info *tse_sys_info = netIfInfo.pTseSystemInfo;
   {
-    FreeRTOS_printf( ("MAC Initialization: Starting.\n") );
-    FreeRTOS_printf( ("MAC Software Reset: Starting.\n") );
+    printf("MAC Initialization: Starting.\n");
+    printf("MAC Software Reset: Starting.\n");
     // Reset and disable TX and RX in TSE
     reg_data = IORD_ALTERA_TSEMAC_CMD_CONFIG(tse_base);
     reg_data |= (ALTERA_TSEMAC_CMD_SW_RESET_MSK | ALTERA_TSEMAC_CMD_CNT_RESET_MSK);
@@ -372,16 +410,16 @@ BaseType_t xNetworkInterfaceInitialise( void )
       }
       // Give up if reset takes too long.
       if (count > TSE_RESET_TIMEOUT) {
-        FreeRTOS_printf( ("MAC reset: FAILED, Timed out!\n") );
+        printf("MAC reset: FAILED, Timed out!\n");
         return pdFALSE;
       }
       ++count;
     }
-    FreeRTOS_printf( ("MAC Software Reset: Success.\n") );
+    printf("MAC Software Reset: Success.\n");
   }
 
   {
-    FreeRTOS_printf( ("MAC FIFO Configuration: INFO: No shared fifo.\n") );
+    printf("MAC FIFO Configuration: INFO: No shared fifo.\n");
     // Tx_section_empty = Max FIFO size - 16
     IOWR_ALTERA_TSEMAC_TX_SECTION_EMPTY(tse_base, tse_sys_info->tse_tx_depth - 16);
     // Tx_almost_full = 3
@@ -400,14 +438,14 @@ BaseType_t xNetworkInterfaceInitialise( void )
     IOWR_ALTERA_TSEMAC_TX_SECTION_FULL (tse_base,  0);
     // Rx_section_full = 16
     IOWR_ALTERA_TSEMAC_RX_SECTION_FULL (tse_base,  0);
-    FreeRTOS_printf( ("MAC FIFO Configuration: Success.\n") );
+    printf("MAC FIFO Configuration: Success.\n");
   }
 
   // setting mac
   // read MAC address provbided by the stack
   const uint8_t *hw_addr = FreeRTOS_GetMACAddress();
   {
-    FreeRTOS_printf( ("MAC Address Configuration : Starting.\n") );
+    printf("MAC Address Configuration : Starting.\n");
     {
       // configure TX_ADDR_SEL to select mac_0 mac_1 as MAC address source
       reg_data = IORD_ALTERA_TSEMAC_CMD_CONFIG(tse_base);
@@ -432,12 +470,12 @@ BaseType_t xNetworkInterfaceInitialise( void )
       IOWR_ALTERA_TSEMAC_SMAC_2_1(tse_base, reg_data);
       IOWR_ALTERA_TSEMAC_SMAC_3_1(tse_base, reg_data);
     }
-    FreeRTOS_printf( ("MAC Address Configuration: Success.\n") );
+    printf("MAC Address Configuration: Success.\n");
   }
 
   //MAC Configuration
   {
-    FreeRTOS_printf( ("MAC Function Configuration: Starting.\n") );
+    printf("MAC Function Configuration: Starting.\n");
 
     // Set maximum frame length.
     IOWR_ALTERA_TSEMAC_FRM_LENGTH(tse_base, ALTERA_TSE_MAC_MAX_FRAME_LENGTH);
@@ -448,9 +486,7 @@ BaseType_t xNetworkInterfaceInitialise( void )
     {
       reg_data = IORD_ALTERA_TSEMAC_CMD_CONFIG(tse_base);
       // Remove frames with CRC errors.
-      reg_data |= ALTERA_TSEMAC_CMD_RX_ERR_DISC_MSK;
-      reg_data |= ALTERA_TSEMAC_CMD_PAD_EN_MSK;
-      reg_data &= ~ALTERA_TSEMAC_CMD_CRC_FWD_MSK;
+      reg_data |= ALTERA_TSEMAC_CMD_RX_ERR_DISC_MSK;;
       // TX MAC address insertion on transmit packet.
       reg_data |= ALTERA_TSEMAC_CMD_TX_ADDR_INS_MSK;
       IOWR_ALTERA_TSEMAC_CMD_CONFIG(tse_base, reg_data);
@@ -458,32 +494,28 @@ BaseType_t xNetworkInterfaceInitialise( void )
 
     /* Setting tx_cmd_stat rx_cmd_stat registers */
     {
-      FreeRTOS_printf( ("Turning off Tx/Rx header boundary 32-bit alignment: Starting.\n") );
+      printf("Turning off Tx/Rx header boundary 32-bit alignment: Starting.\n");
       // Tx boundary alignment.
       reg_data  = IORD_ALTERA_TSEMAC_TX_CMD_STAT(tse_base);
       reg_data &= ~ALTERA_TSEMAC_TX_CMD_STAT_TXSHIFT16_MSK;
-      //reg_data |= ALTERA_TSEMAC_TX_CMD_STAT_TXSHIFT16_MSK;
       IOWR_ALTERA_TSEMAC_TX_CMD_STAT(tse_base, reg_data);
       // Ensure Tx boundary alignment disabled.
       reg_data = IORD_ALTERA_TSEMAC_TX_CMD_STAT(tse_base);
       if (reg_data & ALTERA_TSEMAC_TX_CMD_STAT_TXSHIFT16_MSK) {
-        //if ( ! (reg_data & ALTERA_TSEMAC_TX_CMD_STAT_TXSHIFT16_MSK) ) {
-        FreeRTOS_printf( ("TX header should NOT be boundary aligned: FAILED.\n") );
+        printf("TX header should NOT be boundary aligned: FAILED.\n");
         return pdFALSE;
       }
       // Rx boundary alignment.
       reg_data  = IORD_ALTERA_TSEMAC_RX_CMD_STAT(tse_base);
       reg_data &= ~ALTERA_TSEMAC_RX_CMD_STAT_RXSHIFT16_MSK;
-      //reg_data |= ALTERA_TSEMAC_RX_CMD_STAT_RXSHIFT16_MSK;
       IOWR_ALTERA_TSEMAC_RX_CMD_STAT(tse_base, reg_data);
       // Ensure Tx boundary alignment disabled.
       reg_data = IORD_ALTERA_TSEMAC_RX_CMD_STAT(tse_base);
       if (reg_data & ALTERA_TSEMAC_RX_CMD_STAT_RXSHIFT16_MSK) {
-        //if (! (reg_data & ALTERA_TSEMAC_RX_CMD_STAT_RXSHIFT16_MSK) ) {
-        FreeRTOS_printf( ("RX header should NOT be boundary aligned: FAILED.\n") );
+        printf("RX header should NOT be boundary aligned: FAILED.\n");
         return pdFALSE;
       }
-      FreeRTOS_printf( ("Turning off Tx/Rx header boundary 32-bit alignment: Success.\n") );
+      printf("Turning off Tx/Rx header boundary 32-bit alignment: Success.\n");
     }
     // Speed and Duplex setting
     reg_data = IORD_ALTERA_TSEMAC_CMD_CONFIG(tse_base);
@@ -514,21 +546,21 @@ BaseType_t xNetworkInterfaceInitialise( void )
     }
     IOWR_ALTERA_TSEMAC_CMD_CONFIG(tse_base, reg_data);
 
-    FreeRTOS_printf( ("MAC Configuration: Success.\n") );
+    printf("MAC Configuration: Success.\n");
   }
-  FreeRTOS_printf( ("MAC Initialization: Success.\n") );
+  printf("MAC Initialization: Success.\n");
 
   // get pointers to mSGDMA modules
-  alt_msgdma_dev *rx_msgdma = alt_msgdma_open(TSE_RX_MSGDMA_CSR_NAME);
+  alt_msgdma_dev *rx_msgdma = alt_msgdma_open(CPU_SUBSYSTEM_TSE_RX_MSGDMA_CSR_NAME);
   if (rx_msgdma == NULL || ALT_ERRNO == ENODEV) {
-    FreeRTOS_printf( ("Rx mSGDMA Open '%s': FAILED.\n", TSE_RX_MSGDMA_CSR_NAME) );
+    printf("Rx mSGDMA Open '%s': FAILED.\n", CPU_SUBSYSTEM_TSE_RX_MSGDMA_CSR_NAME);
     return pdFALSE;
   }
   netIfInfo.rxMsgdma = rx_msgdma;
 
-  alt_msgdma_dev *tx_msgdma = alt_msgdma_open(TSE_TX_MSGDMA_CSR_NAME);
+  alt_msgdma_dev *tx_msgdma = alt_msgdma_open(CPU_SUBSYSTEM_TSE_TX_MSGDMA_CSR_NAME);
   if (tx_msgdma == NULL || ALT_ERRNO == ENODEV) {
-    FreeRTOS_printf( ("Tx mSGDMA Open '%s': FAILED.\n", TSE_TX_MSGDMA_CSR_NAME) );
+    printf("Tx mSGDMA Open '%s': FAILED.\n", CPU_SUBSYSTEM_TSE_TX_MSGDMA_CSR_NAME);
     return pdFALSE;
   }
   netIfInfo.txMsgdma = tx_msgdma;
@@ -541,34 +573,34 @@ BaseType_t xNetworkInterfaceInitialise( void )
   t_descr *tx_descr_list = (t_descr *) TX_DESCRIPTOR_LIST_START;
   netIfInfo.pTxDescrListStart = tx_descr_list;
   netIfInfo.pTxSwDescr = tx_descr_list;
-  netIfInfo.pTxHwDescr = tx_descr_list;
 
   // Create Deferred ISR task
-  xTaskCreate(prvEMACDeferredInterruptHandlerTask, "Deffered_RX_handler", RX_DEFERRED_ISR_STACKSIZE, &netIfInfo, RX_DEFERRED_ISR_PRIORITY, &pxDeferredIsrTask );
-  
+  TaskHandle_t *xHandlingTask = pvPortMalloc(sizeof(TaskHandle_t));
+  xTaskCreate(prvEMACDeferredInterruptHandlerTask, "Deffered_RX_handler", RX_DEFERRED_ISR_STACKSIZE, &netIfInfo, RX_DEFERRED_ISR_PRIORITY, xHandlingTask );
+  netIfInfo.pDeferredISRHandle = xHandlingTask;
 
   // Register mSGDMA ISR.
   {
-    FreeRTOS_printf( ("mSGDMA RX ISR Registering: Starting.\n") );
+    printf("mSGDMA RX ISR Registering: Starting.\n");
     alt_msgdma_register_callback(
                                  rx_msgdma,                        // mSGDMA device
                                  (alt_msgdma_callback) rx_msgdma_isr, // callback function
                                  0,                                          // control
                                  &netIfInfo);                                       // arguments/context
-    FreeRTOS_printf( ("mSGDMA RX ISR Registering: Success.\n") );
+    printf("mSGDMA RX ISR Registering: Success.\n");
 
-    FreeRTOS_printf( ("mSGDMA TX ISR Registering: Starting.\n") );
+    printf("mSGDMA TX ISR Registering: Starting.\n");
     alt_msgdma_register_callback(
                                  tx_msgdma,                        // mSGDMA device
                                  (alt_msgdma_callback) tx_msgdma_isr, // callback function
                                  0,                                          // control
                                  &netIfInfo);                                       // arguments/context
-    FreeRTOS_printf( ("mSGDMA TX ISR Registering: Success.\n") );
+    printf("mSGDMA TX ISR Registering: Success.\n");
   }
   // Initialize mSGDMA descriptors (and descriptor lists).
   {
-    FreeRTOS_printf( ("mSGDMA descriptor list initialization: Starting.\n") );
-    FreeRTOS_printf( ("RX mSGDMA Descriptor Initialization: Starting.\n") );
+    printf("mSGDMA descriptor list initialization: Starting.\n");
+    printf("RX mSGDMA Descriptor Initialization: Starting.\n");
     // init desc lists
     t_descr *descr;
     t_descr *llist;
@@ -583,19 +615,19 @@ BaseType_t xNetworkInterfaceInitialise( void )
 
     for (int i = 0; i < RX_DESCRIPTOR_LIST_SIZE; ++i) {
       descr = (rx_descr_list + i);
-      descr->next_desc_ptr = descr;
       size_t bufferSize = ipTOTAL_ETHERNET_FRAME_SIZE;
-      NetworkBufferDescriptor_t *pxDescriptor = pxGetNetworkBufferWithDescriptor( ipTOTAL_ETHERNET_FRAME_SIZE, 1000 );
-      buf_addr = pxDescriptor->pucEthernetBuffer;
+      //NetworkBufferDescriptor_t *pxDescriptor = pxGetNetworkBufferWithDescriptor( ipTOTAL_ETHERNET_FRAME_SIZE, 0 );
+      buf_addr = pucGetNetworkBuffer(&bufferSize);
+      //buf_addr = pxDescriptor->pucEthernetBuffer;
       alt_dcache_flush(buf_addr, bufferSize);
-      result = alt_msgdma_construct_prefetcher_standard_st_to_mm_descriptor(rx_msgdma, descr, (alt_u32) buf_addr, ipTOTAL_ETHERNET_FRAME_SIZE, reg_data);
+      result = alt_msgdma_construct_prefetcher_standard_st_to_mm_descriptor(rx_msgdma, descr, (alt_u32) buf_addr, ipTOTAL_ETHERNET_FRAME_SIZE, reg_data);//, i, 0x0, 0x0);
       if (result != 0) {
-        FreeRTOS_printf( ("RX mSGDMA initializing descriptor %d: FAILED.\n", i) );
+        printf("RX mSGDMA initializing descriptor %d: FAILED.\n", i);
         return pdFALSE;
       }
       result = alt_msgdma_prefetcher_add_standard_desc_to_list(&llist, descr);
       if (result != 0) {
-        FreeRTOS_printf( ("RX mSGDMA add descriptor %d to list: FAILED.\n", i) );
+        printf("RX mSGDMA add descriptor %d to list: FAILED.\n", i);
         return pdFALSE;
       }
     }
@@ -604,12 +636,12 @@ BaseType_t xNetworkInterfaceInitialise( void )
     // Start prefetcher with the list pointing on the first descriptor
     result = alt_msgdma_start_prefetcher_with_list_addr(rx_msgdma, (alt_u32)rx_descr_list, 0, 1);
     if (result != 0) {
-      FreeRTOS_printf( ("mSGDMA Initialization: Failed to start Rx list.\n") );
+      printf("mSGDMA Initialization: Failed to start Rx list.\n");
       return pdFALSE;
     }
     IOWR_ALT_MSGDMA_PREFETCHER_DESCRIPTOR_POLLING_FREQ(rx_msgdma->prefetcher_base, 0xA);
 
-    FreeRTOS_printf( ("TX mSGDMA Descriptor Initialization: Starting.\n") );
+    printf("TX mSGDMA Descriptor Initialization: Starting.\n");
     llist = NULL;
     reg_data  = 0;                                                            /* Set control for Avalon MM-ST transfer.     */
     reg_data |= ALTERA_MSGDMA_DESCRIPTOR_CONTROL_GENERATE_SOP_MASK;           /* Emit start of packet.                      */
@@ -620,28 +652,28 @@ BaseType_t xNetworkInterfaceInitialise( void )
       descr = (tx_descr_list + i);
       result = alt_msgdma_construct_prefetcher_standard_mm_to_st_descriptor(tx_msgdma, descr, (alt_u32)NULL, 0x0, reg_data);
       if (result != 0) {
-        FreeRTOS_printf( ("TX mSGDMA initializing descriptor %d: FAILED.\n", i) );
+        printf("TX mSGDMA initializing descriptor %d: FAILED.\n", i);
         return pdFALSE;
       }
       result = alt_msgdma_prefetcher_add_standard_desc_to_list(&llist, descr);
       if (result != 0) {
-        FreeRTOS_printf( ("TX mSGDMA add descriptor %d to list: FAILED.\n", i) );
+        printf("TX mSGDMA add descriptor %d to list: FAILED.\n", i);
         return pdFALSE;
       }
     }
     // Start TX prefetcher waiting (polling) for first TX packet
     result = alt_msgdma_start_prefetcher_with_list_addr(tx_msgdma, (alt_u32)tx_descr_list, 0, 1);
     if (result != 0) {
-      FreeRTOS_printf( ("mSGDMA Initialization: Failed to start Tx list.\n") );
+      printf("mSGDMA Initialization: Failed to start Tx list.\n");
       return pdFALSE;
     }
     IOWR_ALT_MSGDMA_PREFETCHER_DESCRIPTOR_POLLING_FREQ(tx_msgdma->prefetcher_base, 0xA);
-    FreeRTOS_printf( ("mSGDMA descriptor list initialization: Success.\n") );
+    printf("mSGDMA descriptor list initialization: Success.\n");
   }
 
   // Enable MAC Transmit and Receive
   {
-    FreeRTOS_printf( ("Enable MAC Transmit and Receive: Starting.\n") );
+    printf("Enable MAC Transmit and Receive: Starting.\n");
     // Write RX and TX enable bits.
     reg_data = IORD_ALTERA_TSEMAC_CMD_CONFIG(tse_base);
     reg_data |= ALTERA_TSEMAC_CMD_RX_ENA_MSK;
@@ -650,23 +682,22 @@ BaseType_t xNetworkInterfaceInitialise( void )
     // Ensure Rx is enabled.
     reg_data = IORD_ALTERA_TSEMAC_CMD_CONFIG(tse_base);
     if ((reg_data & ALTERA_TSEMAC_CMD_RX_ENA_MSK) == 0) {
-      FreeRTOS_printf( ("Enable MAC Receive: FAILED.\n") );
+      printf("Enable MAC Receive: FAILED.\n");
       return pdFALSE;
     }
     // Ensure Tx is enabled.
     if ((reg_data & ALTERA_TSEMAC_CMD_TX_ENA_MSK) == 0) {
-      FreeRTOS_printf( ("Enable MAC Transmit: FAILED.\n") );
+      printf("Enable MAC Transmit: FAILED.\n");
       return pdFALSE;
     }
-    FreeRTOS_printf( ("Enable MAC Transmit and Receive: Success.\n") );
+    printf("Enable MAC Transmit and Receive: Success.\n");
   }
 
   return pdTRUE;
 }
 
 BaseType_t xNetworkInterfaceOutput( NetworkBufferDescriptor_t * const pxNetworkBuffer,
-                                    BaseType_t xReleaseAfterSend )
-{
+                                    BaseType_t xReleaseAfterSend ) {
 
   // get current TX software descriptor address
   t_descr *descr = netIfInfo.pTxSwDescr;
@@ -677,11 +708,24 @@ BaseType_t xNetworkInterfaceOutput( NetworkBufferDescriptor_t * const pxNetworkB
   uint8_t isDescrHwOwned = ALT_MSGDMA_PREFETCHER_DESCRIPTOR_CTRL_OWN_BY_HW_GET(descr->control);
   taskEXIT_CRITICAL();
   if ( isDescrHwOwned ) {
-    FreeRTOS_printf( ("Dropped packet: no free TX DMA descriptors\n") );
+    printf("Dropped packet: no free TX DMA descriptors\n");
     vReleaseNetworkBufferAndDescriptor( pxNetworkBuffer );
     return pdFALSE;
   }
 
+  // if descriptor is free
+  /* If BufferAllocation_2.c is being used then the DMA descriptor may
+     still be pointing to the buffer it last transmitted.  If this is the case
+     then the old buffer must be released (returned to the TCP/IP stack) before
+     descriptor is updated to point to the new data waiting to be transmitted. */
+  if( (uint8_t *)(descr->read_address) != NULL ) {
+    /* Note this is releasing just an Ethernet buffer, not a network buffer
+       descriptor as the descriptor has already been released. */
+    vReleaseNetworkBuffer( (uint8_t *)(descr->read_address) );
+  }
+
+  /* Configure the DMA descriptor to send the data referenced by the network buffer
+     descriptor */
   descr->read_address = (alt_u32)(pxNetworkBuffer->pucEthernetBuffer);
   descr->transfer_length = pxNetworkBuffer->xDataLength;
   descr->control           |= ALT_MSGDMA_PREFETCHER_DESCRIPTOR_CTRL_OWN_BY_HW_SET_MASK;
@@ -692,28 +736,27 @@ BaseType_t xNetworkInterfaceOutput( NetworkBufferDescriptor_t * const pxNetworkB
   /* Call the standard trace macro to log the send event. */
   iptraceNETWORK_INTERFACE_TRANSMIT();
 
+  /* The network buffer descriptor must now be returned to the TCP/IP stack, but
+     the Ethernet buffer referenced by the network buffer descriptor is still in
+     use by the DMA.  Remove the reference to the Ethernet buffer from the network
+     buffer descriptor so releasing the network buffer descriptor does not result
+     in the Ethernet buffer also being released.  xReleaseAfterSend() should never
+     equal pdFALSE when  ipconfigZERO_COPY_TX_DRIVER is set to 1 (as it should be
+     if data is transmitted using a zero copy driver.*/
+  if( xReleaseAfterSend != pdFALSE )
+    {
+      pxNetworkBuffer->pucEthernetBuffer = NULL;
+      vReleaseNetworkBufferAndDescriptor( pxNetworkBuffer );
+    }
 
   return pdTRUE;
 }
 
-static uint8_t ucBuffers[ ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS ][ BUFFER_SIZE_ROUNDED_UP ];
-
-// function called by the stack during initialization to link network buffers to stack buffer descriptor structures
-void vNetworkInterfaceAllocateRAMToBuffers(NetworkBufferDescriptor_t pxNetworkBuffers[ ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS ] ) {
-  BaseType_t x;
-
-  for( x = 0; x < ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS; x++ ) {
-    // pucEthernetBuffer is set to point ipBUFFER_PADDING bytes in from the
-    // beginning of the allocated buffer
-    pxNetworkBuffers[ x ].pucEthernetBuffer = &( ucBuffers[ x ][ ipBUFFER_PADDING ] );
-
-    // The following line is also required, but will not be required in
-    // future versions.
-    *( ( uint32_t * ) &ucBuffers[ x ][ 0 ] ) = ( uint32_t ) &( pxNetworkBuffers[ x ] );
-  }
+void vNetworkInterfaceAllocateRAMToBuffers( NetworkBufferDescriptor_t pxNetworkBuffers[ ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS ] ) {
+  /* FIX ME. */
 }
-BaseType_t xGetPhyLinkStatus( void )
-{
+
+BaseType_t xGetPhyLinkStatus( void ) {
   /* FIX ME. */
   return pdFALSE;
 }
