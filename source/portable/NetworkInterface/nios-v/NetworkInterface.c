@@ -158,21 +158,27 @@ alt_32 DP83867_config(np_tse_mac *pmac) {
     //     vTaskDelay(10);
     // }
 
-    dat = IORD(&pmac->mdio1.ADV, 0);
-    dat &= ~(0x03e0); // disable 100 and 10 speeds
-    IOWR(&pmac->mdio1.ADV, 0, dat);
+    // dat = IORD(&pmac->mdio1.CONTROL, 0);
+    // dat |= 1<<14; // enable PHY loopback
+    // dat |= 1<<9; // restart autoneg
+    // IOWR(&pmac->mdio1.CONTROL, 0, dat);
+    // vTaskDelay(10000);
+    // printf("phy ctrl reg 0x%x\n", dat);
 
-    dat = IORD(&pmac->mdio1.reg9, 0);
-    dat |= 0x0200; // enable 1000Base-T Full Duplex ability
-    dat &= ~0x0100; // disable 1000Base-T Half Duplex ability
-    dat &= 0x1fff; // disable all test modes
-    IOWR(&pmac->mdio1.reg9, 0, dat);
+    // dat = IORD(&pmac->mdio1.ADV, 0);
+    // dat &= ~(0x03e0); // disable 100 and 10 speeds
+    // IOWR(&pmac->mdio1.ADV, 0, dat);
 
-    printf("reg10 0x%x\n", IORD(&pmac->mdio1.reg10, 0));
-    dat = TIRD_extended(pmac, 0x6e);
-    alt_u8 phy_addr = dat & 0xf;
-    printf("reg6e 0x%x phy addr 0x%x\n", dat, phy_addr);
+    // dat = IORD(&pmac->mdio1.reg9, 0);
+    // dat |= 0x0200; // enable 1000Base-T Full Duplex ability
+    // dat &= ~0x0100; // disable 1000Base-T Half Duplex ability
+    // dat &= 0x1fff; // disable all test modes
+    // IOWR(&pmac->mdio1.reg9, 0, dat);
 
+    // printf("reg10 0x%x\n", IORD(&pmac->mdio1.reg10, 0));
+    // dat = TIRD_extended(pmac, 0x6e);
+    // alt_u8 phy_addr = dat & 0xf;
+    // printf("reg6e 0x%x phy addr 0x%x\n", dat, phy_addr);
 
     return 0;
 }
@@ -183,6 +189,7 @@ alt_u32 DP83867_link_status_read(np_tse_mac *pmac) {
     alt_u32 autoneg_done;
     alt_u32 link_is_up;
     alt_u32 sleep_mode;
+
     while (1) {
         alt_u32 reg = IORD(&pmac->mdio1.reg11, 0);
         speed = reg >> 14;
@@ -200,6 +207,20 @@ alt_u32 DP83867_link_status_read(np_tse_mac *pmac) {
             continue;
         }
     }
+    printf("DP83867 recv error register%p %d\n", &pmac->mdio1.reg15, IORD(&pmac->mdio1.reg15, 0));
+    printf("DP83867 status1 %p 0x%x\n", &pmac->mdio1.rega, IORD(&pmac->mdio1.rega, 0));
+    printf("DP83867 status2 %p 0x%x\n", &pmac->mdio1.reg17, IORD(&pmac->mdio1.reg17, 0));
+
+    while(IORD(&pmac->mdio1.rega, 0) & (1<<12) == 0) {
+        printf("DP83867 Remote receiver is not OK\n");
+        vTaskDelay(10);
+    }
+
+    // alt_u16 dat = IORD(&pmac->mdio1.CONTROL, 0);
+    // dat |= 1<<14; // enable PHY loopback
+    // IOWR(&pmac->mdio1.CONTROL, 0, dat);
+    // vTaskDelay(10);
+    // printf("phy ctrl reg 0x%x\n", dat);
 
     return ((speed == 2 ? 0b001
            : speed == 1 ? 0b010
@@ -211,10 +232,10 @@ alt_tse_phy_profile TI_DP83867 = {"TI DP83867",
     0x080028,                   // OUI
     0x23,                       // Vender Model Number
     0x1,                        // Model Revision Number
-    0,                          // Location of Status Register (ignored)
-    0,                          // Location of Speed Status    (ignored)
-    0,                          // Location of Duplex Status   (ignored)
-    0,                          // Location of Link Status     (ignored)
+    0x11,                       // Location of Status Register (ignored)
+    14,                         // Location of Speed Status    (ignored)
+    13,                         // Location of Duplex Status   (ignored)
+    10,                         // Location of Link Status     (ignored)
     &DP83867_config,            // No function pointer configure
     &DP83867_link_status_read   // Function pointer to read from PHY specific status register
 };
@@ -551,7 +572,7 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
         IOWR_ALTERA_TSEMAC_FRM_LENGTH(tse_base, ALTERA_TSE_MAC_MAX_FRAME_LENGTH);
         // Maximum inter packet gap is already set by default (to 12).
         // Set maximum pause quanta value for flow control.
-        IOWR_ALTERA_TSEMAC_PAUSE_QUANT(tse_base, 0xFFFF);
+        IOWR_ALTERA_TSEMAC_PAUSE_QUANT(tse_base, 0xFFFF); // 0x0f said in https://www.intel.com/content/www/us/en/support/programmable/articles/000076478.html
         // TSE mac direct register configuration.
         {
             reg_data = IORD_ALTERA_TSEMAC_CMD_CONFIG(tse_base);
@@ -618,6 +639,22 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
         printf("MAC Configuration: Success.\n");
     }
     printf("MAC Initialization: Success.\n");
+
+    // alt_tse_system_info *psys = netIfInfo.pTseSystemInfo;
+    // np_tse_mac *pmac = (np_tse_mac *) psys->tse_mac_base;
+    // // alt_32 data = IORD(&pmac->mdio0.CONTROL, 0);
+    // // data |= 1 << 14; // enable PCS loopback
+    // // IOWR(&pmac->mdio0.CONTROL, 0, data);
+    // // tse_dprintf(5, "INFO    : PCS[] - PCS control reg 0x%x\n", data);
+    // uint32_t *pcs_ptr = (0xc0002000 + 0x80*4); //&pmac->mdio0.CONTROL
+    // printf("PCS base %p\n", pcs_ptr);
+    // printf("PCS control = 0x%x\n", IORD(pcs_ptr, 0));
+    // printf("PCS status = 0x%x\n", IORD(pcs_ptr, 1));
+    // printf("PCS dev_ability = 0x%x\n", IORD(pcs_ptr, 4));
+    // printf("PCS partner_ability = 0x%x\n", IORD(pcs_ptr, 5));
+    // printf("PCS an_expansion = 0x%x\n", IORD(pcs_ptr, 6));
+    // printf("PCS linktimer0 = 0x%x\n", IORD(pcs_ptr, 0x12));
+    // printf("PCS linktimer1 = 0x%x\n", IORD(pcs_ptr, 0x13));
 
     // get pointers to mSGDMA modules
     alt_msgdma_dev *rx_msgdma = alt_msgdma_open(CPU_SUBSYSTEM_TSE_RX_MSGDMA_CSR_NAME);
@@ -744,6 +781,7 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
         reg_data = IORD_ALTERA_TSEMAC_CMD_CONFIG(tse_base);
         reg_data |= ALTERA_TSEMAC_CMD_RX_ENA_MSK;
         reg_data |= ALTERA_TSEMAC_CMD_TX_ENA_MSK;
+        // reg_data |= ALTERA_TSEMAC_CMD_LOOPBACK_MSK;
         IOWR_ALTERA_TSEMAC_CMD_CONFIG(tse_base, reg_data);
         // Ensure Rx is enabled.
         reg_data = IORD_ALTERA_TSEMAC_CMD_CONFIG(tse_base);
@@ -753,9 +791,15 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
         }
         // Ensure Tx is enabled.
         if ((reg_data & ALTERA_TSEMAC_CMD_TX_ENA_MSK) == 0) {
-            printf("Enable MAC Transmit: FAILED.\n");
+            printf("Enable MAC TX: FAILED.\n");
             return pdFALSE;
         }
+        // Ensure Rx is enabled.
+        if ((reg_data & ALTERA_TSEMAC_CMD_RX_ENA_MSK) == 0) {
+            printf("Enable MAC RX: FAILED.\n");
+            return pdFALSE;
+        }
+        // printf("MAC loopback 0x%x\n", reg_data & ALTERA_TSEMAC_CMD_LOOPBACK_MSK);
         printf("Enable MAC Transmit and Receive: Success.\n");
         printf("[NetworkInterface] Finish\n");
     }
@@ -766,7 +810,33 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
 BaseType_t xNetworkInterfaceOutput(
     NetworkBufferDescriptor_t * const pxNetworkBuffer,
     BaseType_t xReleaseAfterSend ) {
-        printf("TX_ISR_CNT %d RX_ISR_CNT %d\n", TX_ISR_CNT, RX_ISR_CNT);
+    // printf("TX_ISR_CNT %d RX_ISR_CNT %d\n", TX_ISR_CNT, RX_ISR_CNT);
+    // printf(
+    // "in errors %d "
+    // "out errors %d "
+    // "tx ok %d "
+    // "rx ok %d "
+    // "(align %d crc %d)"
+    // "\n",
+    //     IORD_ALTERA_TSEMAC_IF_IN_ERRORS((alt_u32*)netIfInfo.pTseCsr),
+    //     IORD_ALTERA_TSEMAC_IF_OUT_ERRORS((alt_u32*)netIfInfo.pTseCsr),
+    //     IORD_ALTERA_TSEMAC_A_FRAMES_TX_OK((alt_u32*)netIfInfo.pTseCsr),
+    //     IORD_ALTERA_TSEMAC_A_FRAMES_RX_OK((alt_u32*)netIfInfo.pTseCsr),
+    //     IORD_ALTERA_TSEMAC_A_ALIGNMENT_ERRS((alt_u32*)netIfInfo.pTseCsr),
+    //     IORD_ALTERA_TSEMAC_A_FRAME_CHECK_SEQ_ERRS((alt_u32*)netIfInfo.pTseCsr)
+
+    // );
+    // printf("DP83867 recv error register%p %d\n", 0xc00022d4, IORD(0xc00022d4, 0));
+    // printf("DP83867 status1 %p 0x%x\n", 0xc00022a8, IORD(0xc00022a8, 0));
+    // printf("DP83867 Receive Status Register 0x%x\n", TIRD_extended(0xc0002000, 0x0135));
+    // printf("DP83867 TDR General Status 0x%x\n", TIRD_extended(0xc0002000, 0x01A4));
+    // printf("DP83867 SGMII_ANEG_STS 0x%x\n", TIRD_extended(0xc0002000, 0x01A4));
+    // printf("DP83867 Fast Link Drop 0x%x\n", TIRD_extended(0xc0002000, 0x2d));
+    // printf("DP83867 satus2 0x%x\n", IORD(0xc00022dc, 0));
+
+    // uint32_t data = IORD_ALTERA_TSEMAC_CMD_CONFIG((alt_u32*)netIfInfo.pTseCsr);
+    // data |= ALTERA_TSEMAC_CMD_LOOPBACK_MSK;
+    // IOWR_ALTERA_TSEMAC_CMD_CONFIG((alt_u32*)netIfInfo.pTseCsr, data);
 
     // get current TX software descriptor address
     t_descr *descr = netIfInfo.pTxSwDescr;
