@@ -149,36 +149,100 @@ alt_u16 TIRD_extended(np_tse_mac *pmac, alt_u16 reg) {
     return IORD(&pmac->mdio1.rege, 0);  // read reg data
 }
 
+void reset_DP83867(np_tse_mac *pmac) {
+    printf("reset_DP83867\n");
+    IOWR(&pmac->mdio1.CONTROL, 0, 1<<15);
+    do {
+        vTaskDelay(10);
+        printf("waiting reset to finish\n");
+    } while(IORD(&pmac->mdio1.CONTROL, 0) & (1<<15));
+}
+
+void print_all_DP83867(np_tse_mac *pmac) {
+    for (int i = 0; i < 32; i++) {
+        printf("0x%04x = 0x%04x\n", i, IORD(&pmac->mdio1.CONTROL, i));
+    }
+    printf("0x0025 = 0x%04x\n", TIRD_extended(pmac, 0x25));
+    printf("0x002c = 0x%04x\n", TIRD_extended(pmac, 0x2c));
+    printf("0x002d = 0x%04x\n", TIRD_extended(pmac, 0x2d));
+    printf("0x002e = 0x%04x\n", TIRD_extended(pmac, 0x2e));
+    printf("0x0031 = 0x%04x\n", TIRD_extended(pmac, 0x31));
+    printf("0x0032 = 0x%04x\n", TIRD_extended(pmac, 0x32));
+    printf("0x0033 = 0x%04x\n", TIRD_extended(pmac, 0x33));
+    printf("0x0043 = 0x%04x\n", TIRD_extended(pmac, 0x43));
+    printf("0x0053 = 0x%04x\n", TIRD_extended(pmac, 0x53));
+    printf("0x0055 = 0x%04x\n", TIRD_extended(pmac, 0x55));
+    printf("0x006e = 0x%04x\n", TIRD_extended(pmac, 0x6e));
+    printf("0x006f = 0x%04x\n", TIRD_extended(pmac, 0x6f));
+    printf("0x0071 = 0x%04x\n", TIRD_extended(pmac, 0x71));
+    printf("0x0072 = 0x%04x\n", TIRD_extended(pmac, 0x72));
+    printf("0x007b = 0x%04x\n", TIRD_extended(pmac, 0x7b));
+    printf("0x007c = 0x%04x\n", TIRD_extended(pmac, 0x7c));
+    printf("0x008a = 0x%04x\n", TIRD_extended(pmac, 0x8a));
+    printf("0x0086 = 0x%04x\n", TIRD_extended(pmac, 0x86));
+    printf("0x00B3 = 0x%04x\n", TIRD_extended(pmac, 0xB3));
+    printf("0x00C0 = 0x%04x\n", TIRD_extended(pmac, 0xC0));
+    printf("0x00C6 = 0x%04x\n", TIRD_extended(pmac, 0xC6));
+    printf("0x00e9 = 0x%04x\n", TIRD_extended(pmac, 0xe9));
+    printf("0x00fe = 0x%04x\n", TIRD_extended(pmac, 0xfe));
+    printf("0x0100 = 0x%04x\n", TIRD_extended(pmac, 0x100));
+    printf("0x012c = 0x%04x\n", TIRD_extended(pmac, 0x12c));
+    printf("0x0134 = 0x%04x\n", TIRD_extended(pmac, 0x134));
+    printf("0x0135 = 0x%04x\n", TIRD_extended(pmac, 0x135));
+    printf("0x0161 = 0x%04x\n", TIRD_extended(pmac, 0x161));
+    printf("0x0170 = 0x%04x\n", TIRD_extended(pmac, 0x170));
+    printf("0x0171 = 0x%04x\n", TIRD_extended(pmac, 0x171));
+    printf("0x0172 = 0x%04x\n", TIRD_extended(pmac, 0x172));
+    printf("0x0180 = 0x%04x\n", TIRD_extended(pmac, 0x180));
+    printf("0x01a4 = 0x%04x\n", TIRD_extended(pmac, 0x1a4));
+}
+
+void setup_phy_loopback(np_tse_mac *pmac) {
+    printf("setup_phy_loopback %p\n", pmac);
+
+    reset_DP83867(pmac);
+
+    // //When configuring loopback modes, the Loopback Configuration Register (LOOPCR), address 0x00FE, should be set to 0xE720.
+    TIWR_extended(pmac, 0x00FE, 0xE720);
+
+    alt_u16 dat = IORD(&pmac->mdio1.CONTROL, 0);
+    dat &= ~(1<<12); //autoneg
+    IOWR(&pmac->mdio1.CONTROL, 0, dat);
+    printf("disable autoneg. Ctrl reg = 0x%x\n", dat);
+    vTaskDelay(10);
+
+    dat |= 1<<14; // enable PHY loopback
+    IOWR(&pmac->mdio1.CONTROL, 0, dat);
+    printf("phy ctrl reg 0x%x\n", IORD(&pmac->mdio1.CONTROL, 0));
+
+    // print_all_DP83867(pmac);
+
+    vTaskDelay(portMAX_DELAY);
+}
+
 alt_32 DP83867_config(np_tse_mac *pmac) {
     alt_u16 dat;
 
-    // IOWR(&pmac->mdio1.reg1f, 0, 0x8000); // Reset PHY
-    // while (IORD(&pmac->mdio1.reg1f, 0) & 0x8000) {
-    //     printf("DP83867 is resetting\n");
-    //     vTaskDelay(10);
-    // }
+    // IOWR(&pmac->mdio1.reg1f, 0, 1<<15);
+    // vTaskDelay(100);
 
-    // dat = IORD(&pmac->mdio1.CONTROL, 0);
-    // dat |= 1<<14; // enable PHY loopback
-    // dat |= 1<<9; // restart autoneg
-    // IOWR(&pmac->mdio1.CONTROL, 0, dat);
-    // vTaskDelay(10000);
-    // printf("phy ctrl reg 0x%x\n", dat);
+    // reset_DP83867(pmac);
 
-    // dat = IORD(&pmac->mdio1.ADV, 0);
-    // dat &= ~(0x03e0); // disable 100 and 10 speeds
-    // IOWR(&pmac->mdio1.ADV, 0, dat);
+    printf("DP83867 0x006e straps 0x%x\n", TIRD_extended(pmac, 0x006e));
+    printf("DP83867 0x006f straps 0x%x\n", TIRD_extended(pmac, 0x006f));
 
-    // dat = IORD(&pmac->mdio1.reg9, 0);
-    // dat |= 0x0200; // enable 1000Base-T Full Duplex ability
-    // dat &= ~0x0100; // disable 1000Base-T Half Duplex ability
-    // dat &= 0x1fff; // disable all test modes
-    // IOWR(&pmac->mdio1.reg9, 0, dat);
+    printf("DP83867 disable test mode\n");
+    dat = TIRD_extended(pmac, 0x0031);
+    printf("DP83867 0x0031 is 0x%x\n", dat);
+    dat &= ~(1<<7); // disable test mode
+    dat &= ~(0b11<<5); // autoneg timeout 16 ms
+    printf("DP83867 0x0031 new 0x%x\n", dat);
+    TIWR_extended(pmac, 0x0031, dat);
 
-    // printf("reg10 0x%x\n", IORD(&pmac->mdio1.reg10, 0));
-    // dat = TIRD_extended(pmac, 0x6e);
-    // alt_u8 phy_addr = dat & 0xf;
-    // printf("reg6e 0x%x phy addr 0x%x\n", dat, phy_addr);
+    printf("restart autoneg\n");
+    dat = IORD(&pmac->mdio1.CONTROL, 0);
+    dat |= 1<<9;
+    IOWR(&pmac->mdio1.CONTROL, 0, dat);
 
     return 0;
 }
@@ -207,20 +271,13 @@ alt_u32 DP83867_link_status_read(np_tse_mac *pmac) {
             continue;
         }
     }
-    printf("DP83867 recv error register%p %d\n", &pmac->mdio1.reg15, IORD(&pmac->mdio1.reg15, 0));
-    printf("DP83867 status1 %p 0x%x\n", &pmac->mdio1.rega, IORD(&pmac->mdio1.rega, 0));
-    printf("DP83867 status2 %p 0x%x\n", &pmac->mdio1.reg17, IORD(&pmac->mdio1.reg17, 0));
 
     while(IORD(&pmac->mdio1.rega, 0) & (1<<12) == 0) {
         printf("DP83867 Remote receiver is not OK\n");
         vTaskDelay(10);
     }
 
-    // alt_u16 dat = IORD(&pmac->mdio1.CONTROL, 0);
-    // dat |= 1<<14; // enable PHY loopback
-    // IOWR(&pmac->mdio1.CONTROL, 0, dat);
-    // vTaskDelay(10);
-    // printf("phy ctrl reg 0x%x\n", dat);
+    print_all_DP83867(pmac);
 
     return ((speed == 2 ? 0b001
            : speed == 1 ? 0b010
@@ -254,8 +311,6 @@ typedef struct NET_IF_INFO {
     t_descr *pTxSwDescr;
 } NET_IF_INFO;
 
-static int TX_ISR_CNT = 0;
-static int RX_ISR_CNT = 0;
 static NET_IF_INFO netIfInfo;
 
 /* The deferred interrupt handler is a standard RTOS task.  FreeRTOS's centralised
@@ -276,7 +331,6 @@ static void prvEMACDeferredInterruptHandlerTask( void *pvParameters ) {
     descr = pNetIfInfo->pRxDescrListStart;
 
     for (int j = 0;; ++j) {
-        printf("TX_ISR_CNT %d RX_ISR_CNT %d\n", TX_ISR_CNT, RX_ISR_CNT);
         /* Wait for the Ethernet MAC interrupt to indicate that another packet
         has been received.  The task notification is used in a similar way to a
         counting semaphore to count Rx events, but is a lot more efficient than
@@ -373,8 +427,6 @@ static void prvEMACDeferredInterruptHandlerTask( void *pvParameters ) {
 }
 
 static void inline rx_msgdma_isr(NET_IF_INFO *pNetIfInfo) {
-    RX_ISR_CNT++;
-
     BaseType_t xHigherPriorityTaskWoken;
     // Re_enable global interrupts so we don't miss one that occurs during the
     // processing of this ISR.
@@ -415,7 +467,6 @@ static void inline rx_msgdma_isr(NET_IF_INFO *pNetIfInfo) {
 }
 
 static void inline tx_msgdma_isr(NET_IF_INFO *pNetIfInfo) {
-    TX_ISR_CNT++;
     alt_u32 reg_data;
     reg_data = IORD_ALTERA_MSGDMA_CSR_STATUS(pNetIfInfo->txMsgdma->csr_base);
     if ((reg_data & ALTERA_MSGDMA_CSR_STOPPED_ON_ERROR_MASK) ||
@@ -450,8 +501,9 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
 
     // Initialize PHY and PCS by calling getPHYSpeed()
     // uC-TCP-IP does that
-    {
+    while (1) {
         result = getPHYSpeed(netIfInfo.pTseCsr);
+        // setup_phy_loopback(netIfInfo.pTseCsr);
         if ((result >> 16) & 0xFF) {
             if (result & ALT_TSE_E_INVALID_SPEED)
                 printf("getPHYSpeed: Invalid speed read from PHY.\n");
@@ -469,8 +521,28 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
                 printf("getPHYSpeed: No MDIO used by the MAC.\n");
             if (result & ALT_TSE_E_NO_PMAC_FOUND)
                 printf("getPHYSpeed: Argument *pmac not found from the list of MAC detected during init.\n");
-            return pdFALSE;
+            continue;
         }
+        uint32_t *pcs_ptr = (0xc0002000 + 0x80*4); //&pmac->mdio0.CONTROL
+        uint16_t pcs_status = IORD(pcs_ptr, 1);
+        uint16_t dev_ability = IORD(pcs_ptr, 4);
+        uint16_t partner_ability = IORD(pcs_ptr, 5);
+        uint16_t an_expansion = IORD(pcs_ptr, 6);
+        uint16_t if_mode = IORD(pcs_ptr, 0x14);
+        uint16_t link_ok = (pcs_status&(1<<2))!=0;
+        uint16_t autoneg_ok = (pcs_status&(1<<5))!=0;
+        if (!link_ok || !autoneg_ok) {
+            printf("PCS link_ok=%d or autoneg_ok=%d (status=0x%x dev_ability=0x%x partner_ability=0x%x an_expansion=0x%x if_mode=0x%x)\n",
+                link_ok, autoneg_ok, pcs_status, dev_ability, partner_ability, an_expansion, if_mode);
+            // uint16_t pcs_control = IORD(pcs_ptr, 0);
+            // printf("PCS control (rst) 0x%x -> ", pcs_control);
+            // pcs_control |= 1<<15;
+            // IOWR(pcs_ptr, 0, pcs_control);
+            // printf("0x%x\n", pcs_control);
+            // vTaskDelay(3000);
+            // continue;
+        }
+
         speed  = (result >> 1) & 0x07;
         duplex = result & 0x01;
         printf("PHY speed %s Mbps %s-duplex\n",
@@ -479,6 +551,7 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
             speed == 4 ? "10" : "Unknown",
             duplex == 1 ? "Full" : "Half");
         printf("PHY and PCS Initialization: Success.\n");
+        break;
     }
 
     // TSE configuration
@@ -640,22 +713,6 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
     }
     printf("MAC Initialization: Success.\n");
 
-    // alt_tse_system_info *psys = netIfInfo.pTseSystemInfo;
-    // np_tse_mac *pmac = (np_tse_mac *) psys->tse_mac_base;
-    // // alt_32 data = IORD(&pmac->mdio0.CONTROL, 0);
-    // // data |= 1 << 14; // enable PCS loopback
-    // // IOWR(&pmac->mdio0.CONTROL, 0, data);
-    // // tse_dprintf(5, "INFO    : PCS[] - PCS control reg 0x%x\n", data);
-    // uint32_t *pcs_ptr = (0xc0002000 + 0x80*4); //&pmac->mdio0.CONTROL
-    // printf("PCS base %p\n", pcs_ptr);
-    // printf("PCS control = 0x%x\n", IORD(pcs_ptr, 0));
-    // printf("PCS status = 0x%x\n", IORD(pcs_ptr, 1));
-    // printf("PCS dev_ability = 0x%x\n", IORD(pcs_ptr, 4));
-    // printf("PCS partner_ability = 0x%x\n", IORD(pcs_ptr, 5));
-    // printf("PCS an_expansion = 0x%x\n", IORD(pcs_ptr, 6));
-    // printf("PCS linktimer0 = 0x%x\n", IORD(pcs_ptr, 0x12));
-    // printf("PCS linktimer1 = 0x%x\n", IORD(pcs_ptr, 0x13));
-
     // get pointers to mSGDMA modules
     alt_msgdma_dev *rx_msgdma = alt_msgdma_open(CPU_SUBSYSTEM_TSE_RX_MSGDMA_CSR_NAME);
     if (rx_msgdma == NULL || ALT_ERRNO == ENODEV) {
@@ -809,35 +866,8 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
 
 BaseType_t xNetworkInterfaceOutput(
     NetworkBufferDescriptor_t * const pxNetworkBuffer,
-    BaseType_t xReleaseAfterSend ) {
-    // printf("TX_ISR_CNT %d RX_ISR_CNT %d\n", TX_ISR_CNT, RX_ISR_CNT);
-    // printf(
-    // "in errors %d "
-    // "out errors %d "
-    // "tx ok %d "
-    // "rx ok %d "
-    // "(align %d crc %d)"
-    // "\n",
-    //     IORD_ALTERA_TSEMAC_IF_IN_ERRORS((alt_u32*)netIfInfo.pTseCsr),
-    //     IORD_ALTERA_TSEMAC_IF_OUT_ERRORS((alt_u32*)netIfInfo.pTseCsr),
-    //     IORD_ALTERA_TSEMAC_A_FRAMES_TX_OK((alt_u32*)netIfInfo.pTseCsr),
-    //     IORD_ALTERA_TSEMAC_A_FRAMES_RX_OK((alt_u32*)netIfInfo.pTseCsr),
-    //     IORD_ALTERA_TSEMAC_A_ALIGNMENT_ERRS((alt_u32*)netIfInfo.pTseCsr),
-    //     IORD_ALTERA_TSEMAC_A_FRAME_CHECK_SEQ_ERRS((alt_u32*)netIfInfo.pTseCsr)
-
-    // );
-    // printf("DP83867 recv error register%p %d\n", 0xc00022d4, IORD(0xc00022d4, 0));
-    // printf("DP83867 status1 %p 0x%x\n", 0xc00022a8, IORD(0xc00022a8, 0));
-    // printf("DP83867 Receive Status Register 0x%x\n", TIRD_extended(0xc0002000, 0x0135));
-    // printf("DP83867 TDR General Status 0x%x\n", TIRD_extended(0xc0002000, 0x01A4));
-    // printf("DP83867 SGMII_ANEG_STS 0x%x\n", TIRD_extended(0xc0002000, 0x01A4));
-    // printf("DP83867 Fast Link Drop 0x%x\n", TIRD_extended(0xc0002000, 0x2d));
-    // printf("DP83867 satus2 0x%x\n", IORD(0xc00022dc, 0));
-
-    // uint32_t data = IORD_ALTERA_TSEMAC_CMD_CONFIG((alt_u32*)netIfInfo.pTseCsr);
-    // data |= ALTERA_TSEMAC_CMD_LOOPBACK_MSK;
-    // IOWR_ALTERA_TSEMAC_CMD_CONFIG((alt_u32*)netIfInfo.pTseCsr, data);
-
+    BaseType_t xReleaseAfterSend
+) {
     // get current TX software descriptor address
     t_descr *descr = netIfInfo.pTxSwDescr;
     alt_dcache_flush(pxNetworkBuffer->pucEthernetBuffer, pxNetworkBuffer->xDataLength);
