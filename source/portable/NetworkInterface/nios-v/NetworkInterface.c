@@ -83,58 +83,6 @@ alt_tse_system_info tse_mac_device[MAXNETS] = {
     )
 };
 
-// MaxLinear GPY115C0VI phy
-alt_32 GPY115_config(np_tse_mac *pmac) {
-    alt_u16 dat;
-
-    dat = IORD(&pmac->mdio1.ADV, 0);
-    dat &= ~(0x0380);
-    IOWR(&pmac->mdio1.ADV, 0, dat);
-
-    dat = IORD(&pmac->mdio1.reg9, 0);
-    dat &= ~(0x0200);
-    IOWR(&pmac->mdio1.reg9, 0, dat);
-
-    dat = IORD(&pmac->mdio1.reg14, 0);
-    dat |= 0x100;
-    dat &= ~(0x6);
-    IOWR(&pmac->mdio1.reg14, 0, dat);
-
-    return 0;
-}
-
-alt_u32 GPY115_link_status_read(np_tse_mac *pmac) {
-    alt_u32 link_status = 0;
-    vTaskDelay(1000);
-    alt_u32 reg = IORD(&pmac->mdio1.reg18, 0);
-    alt_u32 speed = reg & 0x7;
-    if(speed > 3)
-    	return (0x1 << 16);
-    else if(speed == 3)
-    	return (0x1 << 19);
-    else if(speed == 2)
-    	link_status = (0x1 << 1);
-    else if(speed == 1)
-		link_status = (0x1 << 2);
-    else if(speed == 0)
-		link_status = (0x1 << 3);
-
-    link_status |= ((reg & 0x8) >> 3);
-    return link_status;
-}
-
-alt_tse_phy_profile GPY115C0VI = {"MaxLinear GPY115C0VI",
-    0x19f277,                   // OUI
-    0x31,                       // Vender Model Number
-    0x0,                        // Model Revision Number
-    0,                          // Location of Status Register (ignored)
-    0,                          // Location of Speed Status    (ignored)
-    0,                          // Location of Duplex Status   (ignored)
-    0,                          // Location of Link Status     (ignored)
-    &GPY115_config,             // No function pointer configure
-    &GPY115_link_status_read    // Function pointer to read from PHY specific status register
-};
-
 // Texas Instruments DP83867 phy
 void TIWR_extended(np_tse_mac *pmac, alt_u16 reg, alt_u16 val) {
     IOWR(&pmac->mdio1.regd, 0, 0x001f); // prep address write
@@ -158,92 +106,53 @@ void reset_DP83867(np_tse_mac *pmac) {
     } while(IORD(&pmac->mdio1.CONTROL, 0) & (1<<15));
 }
 
-void print_all_DP83867(np_tse_mac *pmac) {
-    for (int i = 0; i < 32; i++) {
-        printf("0x%04x = 0x%04x\n", i, IORD(&pmac->mdio1.CONTROL, i));
-    }
-    printf("0x0025 = 0x%04x\n", TIRD_extended(pmac, 0x25));
-    printf("0x002c = 0x%04x\n", TIRD_extended(pmac, 0x2c));
-    printf("0x002d = 0x%04x\n", TIRD_extended(pmac, 0x2d));
-    printf("0x002e = 0x%04x\n", TIRD_extended(pmac, 0x2e));
-    printf("0x0031 = 0x%04x\n", TIRD_extended(pmac, 0x31));
-    printf("0x0032 = 0x%04x\n", TIRD_extended(pmac, 0x32));
-    printf("0x0033 = 0x%04x\n", TIRD_extended(pmac, 0x33));
-    printf("0x0043 = 0x%04x\n", TIRD_extended(pmac, 0x43));
-    printf("0x0053 = 0x%04x\n", TIRD_extended(pmac, 0x53));
-    printf("0x0055 = 0x%04x\n", TIRD_extended(pmac, 0x55));
-    printf("0x006e = 0x%04x\n", TIRD_extended(pmac, 0x6e));
-    printf("0x006f = 0x%04x\n", TIRD_extended(pmac, 0x6f));
-    printf("0x0071 = 0x%04x\n", TIRD_extended(pmac, 0x71));
-    printf("0x0072 = 0x%04x\n", TIRD_extended(pmac, 0x72));
-    printf("0x007b = 0x%04x\n", TIRD_extended(pmac, 0x7b));
-    printf("0x007c = 0x%04x\n", TIRD_extended(pmac, 0x7c));
-    printf("0x008a = 0x%04x\n", TIRD_extended(pmac, 0x8a));
-    printf("0x0086 = 0x%04x\n", TIRD_extended(pmac, 0x86));
-    printf("0x00B3 = 0x%04x\n", TIRD_extended(pmac, 0xB3));
-    printf("0x00C0 = 0x%04x\n", TIRD_extended(pmac, 0xC0));
-    printf("0x00C6 = 0x%04x\n", TIRD_extended(pmac, 0xC6));
-    printf("0x00e9 = 0x%04x\n", TIRD_extended(pmac, 0xe9));
-    printf("0x00fe = 0x%04x\n", TIRD_extended(pmac, 0xfe));
-    printf("0x0100 = 0x%04x\n", TIRD_extended(pmac, 0x100));
-    printf("0x012c = 0x%04x\n", TIRD_extended(pmac, 0x12c));
-    printf("0x0134 = 0x%04x\n", TIRD_extended(pmac, 0x134));
-    printf("0x0135 = 0x%04x\n", TIRD_extended(pmac, 0x135));
-    printf("0x0161 = 0x%04x\n", TIRD_extended(pmac, 0x161));
-    printf("0x0170 = 0x%04x\n", TIRD_extended(pmac, 0x170));
-    printf("0x0171 = 0x%04x\n", TIRD_extended(pmac, 0x171));
-    printf("0x0172 = 0x%04x\n", TIRD_extended(pmac, 0x172));
-    printf("0x0180 = 0x%04x\n", TIRD_extended(pmac, 0x180));
-    printf("0x01a4 = 0x%04x\n", TIRD_extended(pmac, 0x1a4));
-}
-
-void setup_phy_loopback(np_tse_mac *pmac) {
-    printf("setup_phy_loopback %p\n", pmac);
-
-    reset_DP83867(pmac);
-
-    // //When configuring loopback modes, the Loopback Configuration Register (LOOPCR), address 0x00FE, should be set to 0xE720.
-    TIWR_extended(pmac, 0x00FE, 0xE720);
-
-    alt_u16 dat = IORD(&pmac->mdio1.CONTROL, 0);
-    dat &= ~(1<<12); //autoneg
-    IOWR(&pmac->mdio1.CONTROL, 0, dat);
-    printf("disable autoneg. Ctrl reg = 0x%x\n", dat);
-    vTaskDelay(10);
-
-    dat |= 1<<14; // enable PHY loopback
-    IOWR(&pmac->mdio1.CONTROL, 0, dat);
-    printf("phy ctrl reg 0x%x\n", IORD(&pmac->mdio1.CONTROL, 0));
-
-    // print_all_DP83867(pmac);
-
-    vTaskDelay(portMAX_DELAY);
-}
+// void print_all_DP83867(np_tse_mac *pmac) {
+//     for (int i = 0; i < 32; i++) {
+//         printf("0x%04x = 0x%04x\n", i, IORD(&pmac->mdio1.CONTROL, i));
+//     }
+//     printf("0x0025 = 0x%04x\n", TIRD_extended(pmac, 0x25));
+//     printf("0x002c = 0x%04x\n", TIRD_extended(pmac, 0x2c));
+//     printf("0x002d = 0x%04x\n", TIRD_extended(pmac, 0x2d));
+//     printf("0x002e = 0x%04x\n", TIRD_extended(pmac, 0x2e));
+//     printf("0x0031 = 0x%04x\n", TIRD_extended(pmac, 0x31));
+//     printf("0x0032 = 0x%04x\n", TIRD_extended(pmac, 0x32));
+//     printf("0x0033 = 0x%04x\n", TIRD_extended(pmac, 0x33));
+//     printf("0x0043 = 0x%04x\n", TIRD_extended(pmac, 0x43));
+//     printf("0x0053 = 0x%04x\n", TIRD_extended(pmac, 0x53));
+//     printf("0x0055 = 0x%04x\n", TIRD_extended(pmac, 0x55));
+//     printf("0x006e = 0x%04x\n", TIRD_extended(pmac, 0x6e));
+//     printf("0x006f = 0x%04x\n", TIRD_extended(pmac, 0x6f));
+//     printf("0x0071 = 0x%04x\n", TIRD_extended(pmac, 0x71));
+//     printf("0x0072 = 0x%04x\n", TIRD_extended(pmac, 0x72));
+//     printf("0x007b = 0x%04x\n", TIRD_extended(pmac, 0x7b));
+//     printf("0x007c = 0x%04x\n", TIRD_extended(pmac, 0x7c));
+//     printf("0x008a = 0x%04x\n", TIRD_extended(pmac, 0x8a));
+//     printf("0x0086 = 0x%04x\n", TIRD_extended(pmac, 0x86));
+//     printf("0x00B3 = 0x%04x\n", TIRD_extended(pmac, 0xB3));
+//     printf("0x00C0 = 0x%04x\n", TIRD_extended(pmac, 0xC0));
+//     printf("0x00C6 = 0x%04x\n", TIRD_extended(pmac, 0xC6));
+//     printf("0x00e9 = 0x%04x\n", TIRD_extended(pmac, 0xe9));
+//     printf("0x00fe = 0x%04x\n", TIRD_extended(pmac, 0xfe));
+//     printf("0x0100 = 0x%04x\n", TIRD_extended(pmac, 0x100));
+//     printf("0x012c = 0x%04x\n", TIRD_extended(pmac, 0x12c));
+//     printf("0x0134 = 0x%04x\n", TIRD_extended(pmac, 0x134));
+//     printf("0x0135 = 0x%04x\n", TIRD_extended(pmac, 0x135));
+//     printf("0x0161 = 0x%04x\n", TIRD_extended(pmac, 0x161));
+//     printf("0x0170 = 0x%04x\n", TIRD_extended(pmac, 0x170));
+//     printf("0x0171 = 0x%04x\n", TIRD_extended(pmac, 0x171));
+//     printf("0x0172 = 0x%04x\n", TIRD_extended(pmac, 0x172));
+//     printf("0x0180 = 0x%04x\n", TIRD_extended(pmac, 0x180));
+//     printf("0x01a4 = 0x%04x\n", TIRD_extended(pmac, 0x1a4));
+// }
 
 alt_32 DP83867_config(np_tse_mac *pmac) {
-    alt_u16 dat;
-
-    // IOWR(&pmac->mdio1.reg1f, 0, 1<<15);
-    // vTaskDelay(100);
-
-    // reset_DP83867(pmac);
-
-    printf("DP83867 0x006e straps 0x%x\n", TIRD_extended(pmac, 0x006e));
-    printf("DP83867 0x006f straps 0x%x\n", TIRD_extended(pmac, 0x006f));
-
-    printf("DP83867 disable test mode\n");
-    dat = TIRD_extended(pmac, 0x0031);
-    printf("DP83867 0x0031 is 0x%x\n", dat);
-    dat &= ~(1<<7); // disable test mode
-    dat &= ~(0b11<<5); // autoneg timeout 16 ms
-    printf("DP83867 0x0031 new 0x%x\n", dat);
-    TIWR_extended(pmac, 0x0031, dat);
-
-    printf("restart autoneg\n");
-    dat = IORD(&pmac->mdio1.CONTROL, 0);
-    dat |= 1<<9;
-    IOWR(&pmac->mdio1.CONTROL, 0, dat);
-
+    /* Strap modes 1 and 2 are not applicable for RX_CTRL. The RX_CTRL strap must be configured for strap mode 3 or strap mode 4. If
+    the RX_CTRL pin cannot be strapped to mode 3 or mode 4, bit[7] of Configuration Register 4 (address 0x0031) must be cleared to 0.
+    Autoneg Disable should always be set to 0 when using gigabit Ethernet. */
+    alt_u16 reg = TIRD_extended(pmac, 0x31);
+    reg &= 0xFF7F;
+    TIWR_extended(pmac, 0x31, reg);
+    reset_DP83867(pmac);
     return 0;
 }
 
@@ -277,7 +186,7 @@ alt_u32 DP83867_link_status_read(np_tse_mac *pmac) {
         vTaskDelay(10);
     }
 
-    print_all_DP83867(pmac);
+    // print_all_DP83867(pmac);
 
     return ((speed == 2 ? 0b001
            : speed == 1 ? 0b010
@@ -496,7 +405,6 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
     netIfInfo.pTseCsr = (np_tse_mac*)(netIfInfo.pTseSystemInfo->tse_mac_base);
 
     // Add PHY profiles
-    alt_tse_phy_add_profile(&GPY115C0VI);
     alt_tse_phy_add_profile(&TI_DP83867);
 
     // Initialize PHY and PCS by calling getPHYSpeed()
