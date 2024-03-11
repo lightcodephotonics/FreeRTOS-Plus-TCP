@@ -106,45 +106,6 @@ void reset_DP83867(np_tse_mac *pmac) {
     } while(IORD(&pmac->mdio1.CONTROL, 0) & (1<<15));
 }
 
-// void print_all_DP83867(np_tse_mac *pmac) {
-//     for (int i = 0; i < 32; i++) {
-//         printf("0x%04x = 0x%04x\n", i, IORD(&pmac->mdio1.CONTROL, i));
-//     }
-//     printf("0x0025 = 0x%04x\n", TIRD_extended(pmac, 0x25));
-//     printf("0x002c = 0x%04x\n", TIRD_extended(pmac, 0x2c));
-//     printf("0x002d = 0x%04x\n", TIRD_extended(pmac, 0x2d));
-//     printf("0x002e = 0x%04x\n", TIRD_extended(pmac, 0x2e));
-//     printf("0x0031 = 0x%04x\n", TIRD_extended(pmac, 0x31));
-//     printf("0x0032 = 0x%04x\n", TIRD_extended(pmac, 0x32));
-//     printf("0x0033 = 0x%04x\n", TIRD_extended(pmac, 0x33));
-//     printf("0x0043 = 0x%04x\n", TIRD_extended(pmac, 0x43));
-//     printf("0x0053 = 0x%04x\n", TIRD_extended(pmac, 0x53));
-//     printf("0x0055 = 0x%04x\n", TIRD_extended(pmac, 0x55));
-//     printf("0x006e = 0x%04x\n", TIRD_extended(pmac, 0x6e));
-//     printf("0x006f = 0x%04x\n", TIRD_extended(pmac, 0x6f));
-//     printf("0x0071 = 0x%04x\n", TIRD_extended(pmac, 0x71));
-//     printf("0x0072 = 0x%04x\n", TIRD_extended(pmac, 0x72));
-//     printf("0x007b = 0x%04x\n", TIRD_extended(pmac, 0x7b));
-//     printf("0x007c = 0x%04x\n", TIRD_extended(pmac, 0x7c));
-//     printf("0x008a = 0x%04x\n", TIRD_extended(pmac, 0x8a));
-//     printf("0x0086 = 0x%04x\n", TIRD_extended(pmac, 0x86));
-//     printf("0x00B3 = 0x%04x\n", TIRD_extended(pmac, 0xB3));
-//     printf("0x00C0 = 0x%04x\n", TIRD_extended(pmac, 0xC0));
-//     printf("0x00C6 = 0x%04x\n", TIRD_extended(pmac, 0xC6));
-//     printf("0x00e9 = 0x%04x\n", TIRD_extended(pmac, 0xe9));
-//     printf("0x00fe = 0x%04x\n", TIRD_extended(pmac, 0xfe));
-//     printf("0x0100 = 0x%04x\n", TIRD_extended(pmac, 0x100));
-//     printf("0x012c = 0x%04x\n", TIRD_extended(pmac, 0x12c));
-//     printf("0x0134 = 0x%04x\n", TIRD_extended(pmac, 0x134));
-//     printf("0x0135 = 0x%04x\n", TIRD_extended(pmac, 0x135));
-//     printf("0x0161 = 0x%04x\n", TIRD_extended(pmac, 0x161));
-//     printf("0x0170 = 0x%04x\n", TIRD_extended(pmac, 0x170));
-//     printf("0x0171 = 0x%04x\n", TIRD_extended(pmac, 0x171));
-//     printf("0x0172 = 0x%04x\n", TIRD_extended(pmac, 0x172));
-//     printf("0x0180 = 0x%04x\n", TIRD_extended(pmac, 0x180));
-//     printf("0x01a4 = 0x%04x\n", TIRD_extended(pmac, 0x1a4));
-// }
-
 alt_32 DP83867_config(np_tse_mac *pmac) {
     /* Strap modes 1 and 2 are not applicable for RX_CTRL. The RX_CTRL strap must be configured for strap mode 3 or strap mode 4. If
     the RX_CTRL pin cannot be strapped to mode 3 or mode 4, bit[7] of Configuration Register 4 (address 0x0031) must be cleared to 0.
@@ -185,8 +146,6 @@ alt_u32 DP83867_link_status_read(np_tse_mac *pmac) {
         printf("DP83867 Remote receiver is not OK\n");
         vTaskDelay(10);
     }
-
-    // print_all_DP83867(pmac);
 
     return ((speed == 2 ? 0b001
            : speed == 1 ? 0b010
@@ -372,7 +331,6 @@ static void inline rx_msgdma_isr(NET_IF_INFO *pNetIfInfo) {
     set to pdTRUE. The macro used to do this is dependent on
     the port and may be called portEND_SWITCHING_ISR. */
     portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
-    //portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
 }
 
 static void inline tx_msgdma_isr(NET_IF_INFO *pNetIfInfo) {
@@ -442,13 +400,6 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
         if (!link_ok || !autoneg_ok) {
             printf("PCS link_ok=%d or autoneg_ok=%d (status=0x%x dev_ability=0x%x partner_ability=0x%x an_expansion=0x%x if_mode=0x%x)\n",
                 link_ok, autoneg_ok, pcs_status, dev_ability, partner_ability, an_expansion, if_mode);
-            // uint16_t pcs_control = IORD(pcs_ptr, 0);
-            // printf("PCS control (rst) 0x%x -> ", pcs_control);
-            // pcs_control |= 1<<15;
-            // IOWR(pcs_ptr, 0, pcs_control);
-            // printf("0x%x\n", pcs_control);
-            // vTaskDelay(3000);
-            // continue;
         }
 
         speed  = (result >> 1) & 0x07;
