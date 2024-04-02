@@ -209,6 +209,11 @@ static void prvEMACDeferredInterruptHandlerTask( void *pvParameters ) {
         frame large enough to hold the maximum network packet size (as defined
         in the FreeRTOSIPConfig.h header file). */
         pxDescriptor = pxGetNetworkBufferWithDescriptor( ipTOTAL_ETHERNET_FRAME_SIZE, 0 );
+        if (!pxDescriptor) {
+            printf("prvEMACDeferredInterruptHandlerTask pxGetNetworkBufferWithDescriptor failed\n");
+            vTaskDelay(10);
+            continue;
+        }
         alt_dcache_flush(pxDescriptor->pucEthernetBuffer, pxDescriptor->xDataLength);
         alt_dcache_flush(descr->write_address, ipTOTAL_ETHERNET_FRAME_SIZE);
 
