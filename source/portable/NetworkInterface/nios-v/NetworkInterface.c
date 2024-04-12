@@ -83,40 +83,6 @@ alt_tse_system_info tse_mac_device[MAXNETS] = {
     )
 };
 
-// Texas Instruments DP83867 phy
-void TIWR_extended(np_tse_mac *pmac, alt_u16 reg, alt_u16 val) {
-    IOWR(&pmac->mdio1.regd, 0, 0x001f); // prep address write
-    IOWR(&pmac->mdio1.rege, 0, reg);    // write reg address
-    IOWR(&pmac->mdio1.regd, 0, 0x401f); // prep data write
-    IOWR(&pmac->mdio1.rege, 0, val);    // write reg data
-}
-alt_u16 TIRD_extended(np_tse_mac *pmac, alt_u16 reg) {
-    IOWR(&pmac->mdio1.regd, 0, 0x001f); // prep address write
-    IOWR(&pmac->mdio1.rege, 0, reg);    // write reg address
-    IOWR(&pmac->mdio1.regd, 0, 0x401f); // prep data read
-    return IORD(&pmac->mdio1.rege, 0);  // read reg data
-}
-
-void reset_DP83867(np_tse_mac *pmac) {
-    printf("reset_DP83867\n");
-    IOWR(&pmac->mdio1.CONTROL, 0, 1<<15);
-    do {
-        vTaskDelay(10);
-        printf("waiting reset to finish\n");
-    } while(IORD(&pmac->mdio1.CONTROL, 0) & (1<<15));
-}
-
-alt_32 DP83867_config(np_tse_mac *pmac) {
-    /* Strap modes 1 and 2 are not applicable for RX_CTRL. The RX_CTRL strap must be configured for strap mode 3 or strap mode 4. If
-    the RX_CTRL pin cannot be strapped to mode 3 or mode 4, bit[7] of Configuration Register 4 (address 0x0031) must be cleared to 0.
-    Autoneg Disable should always be set to 0 when using gigabit Ethernet. */
-    alt_u16 reg = TIRD_extended(pmac, 0x31);
-    reg &= 0xFF7F;
-    TIWR_extended(pmac, 0x31, reg);
-    reset_DP83867(pmac);
-    return 0;
-}
-
 alt_u32 DP83867_link_status_read(np_tse_mac *pmac) {
     alt_u32 speed;
     alt_u32 full_duplex;
@@ -141,6 +107,7 @@ alt_u32 DP83867_link_status_read(np_tse_mac *pmac) {
             continue;
         }
     }
+    printf("DP83867 autoneg done\n");
 
     while(IORD(&pmac->mdio1.rega, 0) & (1<<12) == 0) {
         printf("DP83867 Remote receiver is not OK\n");
@@ -161,7 +128,7 @@ alt_tse_phy_profile TI_DP83867 = {"TI DP83867",
     14,                         // Location of Speed Status    (ignored)
     13,                         // Location of Duplex Status   (ignored)
     10,                         // Location of Link Status     (ignored)
-    &DP83867_config,            // No function pointer configure
+    NULL,                       // No function pointer configure
     &DP83867_link_status_read   // Function pointer to read from PHY specific status register
 };
 
@@ -374,7 +341,6 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
     // uC-TCP-IP does that
     while (1) {
         result = getPHYSpeed(netIfInfo.pTseCsr);
-        // setup_phy_loopback(netIfInfo.pTseCsr);
         if ((result >> 16) & 0xFF) {
             if (result & ALT_TSE_E_INVALID_SPEED)
                 printf("getPHYSpeed: Invalid speed read from PHY.\n");
@@ -394,17 +360,13 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
                 printf("getPHYSpeed: Argument *pmac not found from the list of MAC detected during init.\n");
             continue;
         }
-        uint32_t *pcs_ptr = (0xc0002000 + 0x80*4); //&pmac->mdio0.CONTROL
+        uint32_t *pcs_ptr = (uint32_t*)netIfInfo.pTseCsr + 0x80*4; //&pmac->mdio0.CONTROL
         uint16_t pcs_status = IORD(pcs_ptr, 1);
-        uint16_t dev_ability = IORD(pcs_ptr, 4);
-        uint16_t partner_ability = IORD(pcs_ptr, 5);
-        uint16_t an_expansion = IORD(pcs_ptr, 6);
-        uint16_t if_mode = IORD(pcs_ptr, 0x14);
         uint16_t link_ok = (pcs_status&(1<<2))!=0;
         uint16_t autoneg_ok = (pcs_status&(1<<5))!=0;
         if (!link_ok || !autoneg_ok) {
-            printf("PCS link_ok=%d or autoneg_ok=%d (status=0x%x dev_ability=0x%x partner_ability=0x%x an_expansion=0x%x if_mode=0x%x)\n",
-                link_ok, autoneg_ok, pcs_status, dev_ability, partner_ability, an_expansion, if_mode);
+            printf("PCS link_ok=%d or autoneg_ok=%d... ignoring\n",
+                link_ok, autoneg_ok);
         }
 
         speed  = (result >> 1) & 0x07;
@@ -702,7 +664,6 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
         reg_data = IORD_ALTERA_TSEMAC_CMD_CONFIG(tse_base);
         reg_data |= ALTERA_TSEMAC_CMD_RX_ENA_MSK;
         reg_data |= ALTERA_TSEMAC_CMD_TX_ENA_MSK;
-        // reg_data |= ALTERA_TSEMAC_CMD_LOOPBACK_MSK;
         IOWR_ALTERA_TSEMAC_CMD_CONFIG(tse_base, reg_data);
         // Ensure Rx is enabled.
         reg_data = IORD_ALTERA_TSEMAC_CMD_CONFIG(tse_base);
@@ -720,7 +681,6 @@ BaseType_t xNetworkInterfaceInitialise( void ) {
             printf("Enable MAC RX: FAILED.\n");
             return pdFALSE;
         }
-        // printf("MAC loopback 0x%x\n", reg_data & ALTERA_TSEMAC_CMD_LOOPBACK_MSK);
         printf("Enable MAC Transmit and Receive: Success.\n");
         printf("[NetworkInterface] Finish\n");
     }
